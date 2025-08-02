@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+# mooncrater-connect-all - Attach all evdev keyboards and mice to mooncrater-input
+# Usage: mooncrater-connect-all --socket SOCKET_PATH [--exclude DEVICE ...]
+
+set -euo pipefail
+
+show_help() {
+    cat << EOF
+mooncrater-connect-all - Attach all evdev keyboards and mice to mooncrater-input
+
+USAGE:
+    mooncrater-connect-all --socket SOCKET_PATH [--exclude DEVICE ...]
+
+OPTIONS:
+    --socket SOCKET_PATH  Path to the Unix socket (default: /tmp/mooncrater-input-socket)
+    --exclude DEVICE      Device path or name to exclude (may be repeated)
+    --help                Show this help message
+
+EXAMPLES:
+    mooncrater-connect-all --socket /tmp/mooncrater-input-socket
+    mooncrater-connect-all --socket /tmp/mooncrater-input-socket --exclude /dev/input/event0
+    mooncrater-connect-all --socket /tmp/mooncrater-input-socket --exclude /dev/input/event0 --exclude "My Keyboard"
+
+Sends an attach_all_evdev_except command to mooncrater-input via the Unix socket,
+causing it to capture all keyboards and mice found in /dev/input (except its own
+virtual outputs and any excluded devices).
+EOF
+}
+
+SOCKET_PATH="/tmp/mooncrater-input-socket"
+EXCLUDES=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --socket)
+            SOCKET_PATH="$2"
+            shift 2
+            ;;
+        --exclude)
+            EXCLUDES+=("$2")
+            shift 2
+            ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option $1" >&2
+            echo "Use --help for usage information" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$SOCKET_PATH" ]]; then
+    echo "Error: --socket is required" >&2
+    exit 1
+fi
+
+if ! command -v socat >/dev/null 2>&1; then
+    echo "Error: socat is required but not installed" >&2
+    echo "Install with: sudo apt install socat" >&2
+    exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: jq is required but not installed" >&2
+    echo "Install with: sudo apt install jq" >&2
+    exit 1
+fi
+
+# Build the JSON command; include exclude list only if non-empty
+if [[ ${#EXCLUDES[@]} -gt 0 ]]; then
+    EXCLUDE_JSON=$(printf '%s\n' "${EXCLUDES[@]}" | jq -R . | jq -s .)
+    JSON_EVENT=$(jq -n \
+        --argjson exclude "$EXCLUDE_JSON" \
+        '{"category": "command", "type": "attach_all_evdev_except", "exclude": $exclude}')
+else
+    JSON_EVENT='{"category": "command", "type": "attach_all_evdev_except"}'
+fi
+
+echo "$JSON_EVENT" | socat - "UNIX-CONNECT:$SOCKET_PATH"
+
+echo "Sent attach_all_evdev_except command to '$SOCKET_PATH'" >&2

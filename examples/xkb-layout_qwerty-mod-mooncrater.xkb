@@ -1,0 +1,104 @@
+// Custom XKB layout extending standard QWERTY with extra scancodes
+// To compile: xkbcomp -I. xkb-layout_qwerty-mod-mooncrater.xkb -xkb -o xkb-layout_mod-mooncrater_compiled.xkb
+// To load: xkbcomp xkb-layout_qwerty-mod-mooncrater_compiled.xkb $DISPLAY
+
+xkb_keymap {
+    xkb_keycodes "qwertyModMooncrater" {
+        // Include standard evdev keycodes for US QWERTY layout
+        include "evdev+aliases(qwerty)"
+
+        // Add custom scancodes using unused scancode range 0xA3-0xDF
+        // These correspond to unused scancodes 163-223 identified in scancode report
+
+        // Multi_key (Compose key) - using scancode 163 (0xA3)
+        //<COMP> = 163; // It turns out that 163 is KEY_NEXTSONG, let's not use that
+        // Let's try 157, KEY_COMPUTER
+        //<COMP> = 157;
+        // Except maybe it is 165...
+        <COMP> = 165;
+
+        <MOD2> = 168;		// #define KEY_CLOSECD             160
+        <MOD3> = 169;		// #define KEY_EJECTCD             161
+        <MOD5> = 170;		// #define KEY_EJECTCLOSECD        162
+
+    };
+
+    xkb_types "qwertyModMooncrater" {
+        include "complete"
+
+        // Define virtual modifiers for our custom keys
+        //virtual_modifiers Super,Hyper,CustomMod3,CustomMod5;
+        //virtual_modifiers Super,Hyper;
+        // I don't fully understand virtual_modifiers, but it lets us give a name to mod3 and mod5, I guess.  Let's call them Ultra (mod3) and Beyond (mod5).  Chosen primarily because they start with different letters than Super, Hyper, Alt, Meta.  But I still don't know whether I'll really use them for anything.
+        virtual_modifiers Super,Hyper,Ultra,Beyond;
+    };
+
+    xkb_compat "qwertyModMooncrater" {
+        include "complete"
+
+        virtual_modifiers Hyper,Ultra,Beyond;
+
+        // Set up compatibility for our custom modifiers
+        interpret Hyper_L+AnyOf(all) {
+            virtualModifier= Hyper;
+            //action= SetMods(modifiers=Hyper,clearLocks);
+            action= SetMods(modifiers=Mod2,clearLocks);
+        };
+        interpret Hyper_R+AnyOf(all) {
+            virtualModifier= Hyper;
+            //action= SetMods(modifiers=Hyper,clearLocks);
+            action= SetMods(modifiers=Mod2,clearLocks);
+        };
+
+        // Custom modifier interpretations
+        interpret XF86Tools+AnyOfOrNone(all) {
+            virtualModifier= Ultra;
+            action= SetMods(modifiers=Mod3,clearLocks);
+        };
+        interpret XF86Word+AnyOfOrNone(all) {
+            virtualModifier= Beyond;
+            action= SetMods(modifiers=Mod5,clearLocks);
+        };
+    };
+
+    xkb_symbols "qwertyModMooncrater" {
+        include "pc+us+inet(evdev)"
+
+        name[Group1]= "qwertyModMooncrater";
+
+        // Modifier key assignments using Linux modifier conventions where applicable, Hatchak convention after that, then new stuff.
+        // Mod1: Alt (standard)
+        // Mod2: Hyper (instead of NumLock, this is what the Hatchak XKB file does, so I already have key bindings that assume Mod2 is Hyper)
+        // Mod3: Ultra (Custom Mod3)
+        // Mod4: Super/Windows key (standard)
+        // Mod5: Beyond (Custom Mod5)
+
+        modifier_map Mod1    { Alt_L, Alt_R };
+        modifier_map Mod2    { Hyper_L, Hyper_R };
+        modifier_map Mod3    { XF86Tools };
+        modifier_map Mod4    { Super_L, Super_R };
+        modifier_map Mod5    { XF86Word };
+
+        // Assign our custom scancodes to modifier keys and Multi_key
+        key <COMP> { type="ONE_LEVEL", [ Multi_key ] };
+        key <MOD2> { type="ONE_LEVEL", [ Hyper_L ] };
+        key <MOD3> { type="ONE_LEVEL", [ XF86Tools ] };
+        key <MOD5> { type="ONE_LEVEL", [ XF86Word ] };
+        // Since we are removing numlock, let's at least bind the key, then there is a hyper key available on a standard keyboard.
+        key <NMLK> { type="ONE_LEVEL", [ Hyper_R ] };
+
+        // Force keypad numbers to always be numbers (not affected by NumLock)
+        key <KP1>  { type="ONE_LEVEL", [ KP_1 ] };
+        key <KP2>  { type="ONE_LEVEL", [ KP_2 ] };
+        key <KP3>  { type="ONE_LEVEL", [ KP_3 ] };
+        key <KP4>  { type="ONE_LEVEL", [ KP_4 ] };
+        key <KP5>  { type="ONE_LEVEL", [ KP_5 ] };
+        key <KP6>  { type="ONE_LEVEL", [ KP_6 ] };
+        key <KP7>  { type="ONE_LEVEL", [ KP_7 ] };
+        key <KP8>  { type="ONE_LEVEL", [ KP_8 ] };
+        key <KP9>  { type="ONE_LEVEL", [ KP_9 ] };
+        key <KP0>  { type="ONE_LEVEL", [ KP_0 ] };
+    };
+
+    xkb_geometry { include "pc(pc104)" };
+};
