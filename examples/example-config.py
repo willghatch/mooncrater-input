@@ -38,7 +38,9 @@ evdev_output.register(mi)
 socket_input.register(mi)
 
 # Create local virtual devices with tag "main" - these will be our primary output
-mi.create_output("virtual_evdev", "main")
+if not mi.create_output("virtual_evdev", "main"):
+    import sys
+    sys.exit(1)
 
 
 # Socket input configuration - disabled by default.
