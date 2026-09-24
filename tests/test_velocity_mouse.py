@@ -122,6 +122,22 @@ def test_momentary_and_latched_modifiers_compose_and_clamp_in_fixed_order():
     assert engine.tick(0.04).delta_x == pytest.approx(0.6)
 
 
+def test_same_modifier_contributes_for_each_momentary_and_latched_activation():
+    config = MotionConfig(
+        "pointer",
+        20.0,
+        1.0,
+        100.0,
+        modifiers={"boost": SpeedModifier(ModifierKind.ADDITIVE, 10.0)},
+    )
+    engine = make_engine(pointer_config=config)
+    engine.press_speed_modifier(config, "boost", "held-boost", 0.0)
+    engine.set_speed_modifier(config, "boost", True, 0.0)
+    engine.press_direction(Direction.RIGHT, "right", 0.0)
+
+    assert engine.tick(0.01).delta_x == pytest.approx(0.4)
+
+
 def test_base_speed_actions_are_sequential_clamped_and_repeat_safe():
     pointer = MotionConfig("pointer", 10.0, 5.0, 50.0)
     scroll = MotionConfig("scroll", 4.0, 1.0, 12.0)
