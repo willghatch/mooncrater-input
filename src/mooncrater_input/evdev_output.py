@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import logging
+import time
 from typing import List, Optional
 
 # Set up logging
@@ -21,6 +22,9 @@ class EvdevOutputVirtualDevice:
         self.last_error = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 3
+        # After max_reconnect_attempts failures, wait this long before trying again.
+        self.reconnect_cooldown_seconds = 30.0
+        self._last_reconnect_attempt_time = None
 
         # Try to create devices
         try:
@@ -45,11 +49,12 @@ class EvdevOutputVirtualDevice:
                 self._evdev = evdev
                 self._UInput = UInput
                 self._e = e
-                self._json_translator = self.JsonToEvdevTranslator(e)
             except ImportError:
                 raise ImportError(
                     "evdev package is required for virtual device outputs. Install with: pip install evdev"
                 )
+        if self._json_translator is None:
+            self._json_translator = self.JsonToEvdevTranslator(self._e)
 
     def _create_devices(self):
         """Create the virtual keyboard, mouse, and trackpad devices."""
@@ -114,18 +119,20 @@ class EvdevOutputVirtualDevice:
         )
 
     def send_json_event(self, json_event: dict):
-        """Send a JSON event by translating to evdev events."""
-        try:
-            # Check connection status and try to reconnect if needed
-            if not self.is_connected():
-                if not self._try_reconnect():
-                    logger.warning(f"Virtual device '{self.tag}' not connected, dropping event")
-                    return
+        """Send a JSON event by translating to evdev events.
 
-            if not self._json_translator:
-                logger.warning(f"Virtual device '{self.tag}' translator not available")
+        Never raises.  An event that cannot be translated or written is logged
+        and dropped.  Only device (OSError) failures mark the device failed,
+        and the next event then tries to reconnect.
+        """
+        # Check connection status and try to reconnect if needed
+        if not self.is_connected():
+            if not self._try_reconnect():
+                logger.warning(f"Virtual device '{self.tag}' not connected, dropping event")
                 return
 
+        try:
+            self._ensure_evdev_loaded()
             evdev_events = self._json_translator.translate(json_event)
 
             # Determine which device type to use based on event category
@@ -137,22 +144,36 @@ class EvdevOutputVirtualDevice:
                 json_event.get("category"), "keyboard"
             )  # Default to keyboard
 
+        except Exception as e:
+            logger.error(
+                f"Virtual device '{self.tag}' dropping event it could not translate: {e!r}; event: {json_event!r}"
+            )
+            return
+
+        try:
             # Send each evdev event
             for event_type, code, value in evdev_events:
                 self.send_event(device_type, event_type, code, value)
-
+        except OSError:
+            # send_event already logged and marked the device failed.
+            pass
         except Exception as e:
-            logger.error(f"Error sending event to virtual device '{self.tag}': {e}")
-            self.connection_status = "failed"
-            self.last_error = str(e)
+            logger.error(
+                f"Virtual device '{self.tag}' dropping event it could not write: {e!r}; event: {json_event!r}"
+            )
 
     def send_event(self, device_type: str, event_type: int, code: int, value: int):
-        """Send an event to the specified device type."""
+        """Send an event to the specified device type.
+
+        An OSError means the device itself failed: it is marked failed and the
+        error re-raised.  Other errors (eg. invalid values) are re-raised
+        without marking the device failed.
+        """
         try:
             if device_type in self.devices:
                 self.devices[device_type].write(event_type, code, value)
                 self.devices[device_type].syn()
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error writing to virtual device '{self.tag}' type '{device_type}': {e}")
             self.connection_status = "failed"
             self.last_error = str(e)
@@ -172,12 +193,24 @@ class EvdevOutputVirtualDevice:
         }
 
     def _try_reconnect(self) -> bool:
-        """Try to reconnect virtual devices."""
+        """Try to reconnect virtual devices.
+
+        After max_reconnect_attempts consecutive failures, further attempts
+        are refused until reconnect_cooldown_seconds have passed since the
+        last attempt, then a new round of attempts starts.
+        """
+        now = time.monotonic()
         if self.reconnect_attempts >= self.max_reconnect_attempts:
-            logger.error(f"Max reconnection attempts reached for virtual device '{self.tag}'")
-            return False
+            if (
+                self._last_reconnect_attempt_time is not None
+                and now - self._last_reconnect_attempt_time < self.reconnect_cooldown_seconds
+            ):
+                logger.error(f"Max reconnection attempts reached for virtual device '{self.tag}', waiting to retry")
+                return False
+            self.reconnect_attempts = 0
 
         self.reconnect_attempts += 1
+        self._last_reconnect_attempt_time = now
         logger.info(f"Attempting to reconnect virtual device '{self.tag}' (attempt {self.reconnect_attempts}/{self.max_reconnect_attempts})")
 
         try:
@@ -505,8 +538,25 @@ class EvdevOutputVirtualDevice:
             }
             return char_map.get(char)
 
-        def _keyname_to_scancode(self, keyname: str) -> Optional[int]:
-            """Convert keyName string to scancode."""
+        def _keyname_to_scancode(self, keyname) -> Optional[int]:
+            """Convert keyName string to scancode.
+
+            A list or tuple of names (evdev's form for codes with several
+            names) is accepted with a warning, using the first name that
+            resolves.  Any other non-string gives None.
+            """
+            if isinstance(keyname, (list, tuple)):
+                logger.warning(f"keyName should be a string, got {keyname!r}; using the first name that resolves")
+                for name in keyname:
+                    if isinstance(name, str):
+                        code = self._keyname_to_scancode(name)
+                        if code is not None:
+                            return code
+                return None
+            if not isinstance(keyname, str):
+                logger.warning(f"Ignoring non-string keyName {keyname!r}")
+                return None
+
             # Handle SCANCODE_* format for custom scancodes (e.g., "SCANCODE_175")
             if keyname.startswith("SCANCODE_"):
                 try:
@@ -716,14 +766,15 @@ def register(mooncrater_input):
 
     # Send events function for virtual_evdev output
     def send_events_virtual_evdev(mooncrater_input_instance, instance, events):
-        try:
-            for json_event in events:
+        # Send each event independently so one failure cannot drop the rest.
+        ok = True
+        for json_event in events:
+            try:
                 instance.send_json_event(json_event)
-            return True
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Failed to send events to virtual evdev: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"Failed to send event to virtual evdev: {e!r}; event: {json_event!r}")
+                ok = False
+        return ok
 
     # Register the virtual_evdev output type
     mooncrater_input.register_output_type(
