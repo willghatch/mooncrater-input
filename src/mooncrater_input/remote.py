@@ -585,13 +585,18 @@ class RemoteBackend:
 
     def _send_event_immediate(self, event_data: dict):
         """Send a single event immediately (used by buffer worker)."""
+        # An unserializable event is dropped without dropping the connection.
+        try:
+            json_data = json.dumps(event_data)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Remote backend {self.tag} dropping event it could not serialize: {e!r}")
+            return False
+
         try:
             if not self.connection:
                 return False
 
             # Send POST request
-            json_data = json.dumps(event_data)
-
             self.connection.putrequest("POST", "/events")
             for header, value in self.headers.items():
                 self.connection.putheader(header, value)

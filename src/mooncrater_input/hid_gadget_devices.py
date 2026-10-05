@@ -96,7 +96,11 @@ class HIDGadgetDeviceTag:
                 raise RuntimeError(f"Failed to initialize HID gadget devices: {e}")
 
     def send_json_event(self, json_event: dict):
-        """Send a JSON event by translating to HID events."""
+        """Send a JSON event by translating to HID events.
+
+        Never raises.  Only device (OSError) failures mark the device failed;
+        any other error just drops the offending event.
+        """
         try:
             # Check connection status and try to reconnect if needed
             if not self.is_connected():
@@ -110,10 +114,14 @@ class HIDGadgetDeviceTag:
 
             self._json_translator.translate_and_send(json_event, self._hid_support)
 
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error sending event to HID gadget device '{self.tag}': {e}")
             self.connection_status = "failed"
             self.last_error = str(e)
+        except Exception as e:
+            logger.error(
+                f"HID gadget device '{self.tag}' dropping event it could not send: {e!r}; event: {json_event!r}"
+            )
 
     # def send_keyboard_event(self, event_type: str, scancode: int, **kwargs):
     #     """Send a keyboard event directly."""
@@ -488,8 +496,25 @@ class HIDGadgetDeviceTag:
             }
             return char_map.get(char)
 
-        def _keyname_to_hid_scancode(self, keyname: str) -> Optional[int]:
-            """Convert keyName string to HID scancode."""
+        def _keyname_to_hid_scancode(self, keyname) -> Optional[int]:
+            """Convert keyName string to HID scancode.
+
+            A list or tuple of names (evdev's form for codes with several
+            names) is accepted with a warning, using the first name that
+            resolves.  Any other non-string gives None.
+            """
+            if isinstance(keyname, (list, tuple)):
+                logger.warning(f"keyName should be a string, got {keyname!r}; using the first name that resolves")
+                for name in keyname:
+                    if isinstance(name, str):
+                        code = self._keyname_to_hid_scancode(name)
+                        if code is not None:
+                            return code
+                return None
+            if not isinstance(keyname, str):
+                logger.warning(f"Ignoring non-string keyName {keyname!r}")
+                return None
+
             # Handle SCANCODE_* format for custom scancodes (e.g., "SCANCODE_175")
             if keyname.startswith("SCANCODE_"):
                 try:
@@ -1209,13 +1234,15 @@ def register(mooncrater_input):
 
     # Send events function for usb_gadget output
     def send_events_usb_gadget(mooncrater_input_instance, instance, events):
-        try:
-            for json_event in events:
+        # Send each event independently so one failure cannot drop the rest.
+        ok = True
+        for json_event in events:
+            try:
                 instance.send_json_event(json_event)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send events to USB gadget: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"Failed to send event to USB gadget: {e!r}; event: {json_event!r}")
+                ok = False
+        return ok
 
     # Register the usb_gadget output type
     mooncrater_input.register_output_type(

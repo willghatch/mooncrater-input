@@ -348,7 +348,9 @@ class UARTBackend:
             return False
 
     def _keyname_to_hid(self, keyname: str) -> int:
-        """Convert Linux keyname to USB HID keycode."""
+        """Convert Linux keyname to USB HID keycode, or 0 if unknown."""
+        if not isinstance(keyname, str):
+            return 0
         return self.KEY_MAP.get(keyname, 0)
 
     def _button_to_mask(self, button: str) -> int:
@@ -586,10 +588,13 @@ class UARTBackend:
             else:
                 logger.debug(f"Ignoring event category: {category}")
 
-        except Exception as e:
+        except OSError as e:
+            # serial.SerialException is an OSError.
             logger.error(f"Error processing event in UART backend: {e}")
             self.connection_status = "failed"
             self.last_error = str(e)
+        except Exception as e:
+            logger.error(f"UART backend dropping event it could not process: {e!r}; event: {event!r}")
 
     def _process_keyboard_event(self, event: Dict[str, Any]):
         """Process keyboard events from Mooncrater Input."""
@@ -749,13 +754,15 @@ def register(mooncrater_input):
 
     # Send events function for uart output
     def send_events_uart_output(mooncrater_input_instance, instance, events):
-        try:
-            for json_event in events:
+        # Send each event independently so one failure cannot drop the rest.
+        ok = True
+        for json_event in events:
+            try:
                 instance.process_mooncrater_event(json_event)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send events to UART: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"Failed to send event to UART: {e!r}; event: {json_event!r}")
+                ok = False
+        return ok
 
     # Register the uart output type
     mooncrater_input.register_output_type(
