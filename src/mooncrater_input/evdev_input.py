@@ -18,6 +18,35 @@ logger = logging.getLogger(__name__)
 # overridden per-device with the "autoReconnect" key.
 default_auto_reconnect = False
 
+# Canonical names for key codes that evdev reports under several names.
+# Codes not listed here use the last alias, ignoring range markers.
+_PREFERRED_KEY_NAMES = {
+    "KEY_MUTE",
+    "KEY_HANGEUL",
+    "KEY_SCREENLOCK",
+    "KEY_ROTATE_DISPLAY",
+    "KEY_ALL_APPLICATIONS",
+    "KEY_BRIGHTNESS_AUTO",
+    "KEY_WWAN",
+    "KEY_FULL_SCREEN",
+    "KEY_ASPECT_RATIO",
+    "KEY_DISPLAYTOGGLE",
+}
+
+# Names that mark code ranges rather than naming a key.
+_KEY_RANGE_MARKERS = {"KEY_MIN_INTERESTING", "KEY_RESERVED", "KEY_MAX", "KEY_CNT"}
+
+
+def _key_names(names) -> list:
+    """Return evdev key name(s) as a list, preferred name last."""
+    if isinstance(names, str):
+        return [names]
+    names = list(names)
+    preferred = [n for n in names if n in _PREFERRED_KEY_NAMES]
+    if not preferred:
+        preferred = [n for n in names if n not in _KEY_RANGE_MARKERS][-1:]
+    return [n for n in names if n not in preferred] + preferred
+
 
 class EvdevInputCapture:
     """Manages evdev input device capture and translation to JSON events."""
@@ -699,17 +728,19 @@ class EvdevInputCapture:
 
                     # Get key name for easier processing
                     try:
-                        key_name = self.evdev.ecodes.KEY[event.code]
+                        key_names = _key_names(self.evdev.ecodes.KEY[event.code])
                         key_char = self._scancode_to_char(event.code)
-                    except KeyError:
-                        key_name = f"KEY_{event.code}"
+                    except (KeyError, IndexError):
+                        key_names = [f"KEY_{event.code}"]
                         key_char = None
+                    key_name = key_names[-1]
 
                     return {
                         "category": category,
                         "type": event_type,
                         "scancode": event.code,
                         "keyName": key_name,
+                        "keyNames": key_names,
                         "keyChar": key_char,
                         "inputTag": input_tag,
                         "inputKind": "capturedDevice",

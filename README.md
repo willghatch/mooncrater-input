@@ -76,6 +76,7 @@ A key press and a mouse movement from a captured device look like:
 #### Event-specific fields
 
 - **`keyName`**, **`keyChar`**, **`scancode`** — keyboard events.  Incoming events from real hardware have all of them, outgoing events need only one.  There is some order of precedence if they disagree.
+- **`keyNames`** — on captured keyboard events, every evdev name for the key code (eg. `KEY_MIN_INTERESTING` and `KEY_MUTE`).  `keyName` is always a single string, the preferred one of these.
 - **`button`** — mouse button events (`left`, `right`, `middle`, `back`, `forward`)
 - **`deltaX`**, **`deltaY`** — mouse movement, scroll, and smooth-scroll events (floats for `smoothScroll`)
 - **`rawDeltaX`**, **`rawDeltaY`** — raw evdev units for `smoothScroll` (~120 = one notch)
