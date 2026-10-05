@@ -559,7 +559,12 @@ class MooncraterInput:
         # Process events through modifier pipeline before sending to backend
         if backend_tag in self.modifier_pipelines:
             pipeline = self.modifier_pipelines[backend_tag]
-            processed_events = pipeline.process_events(events)
+            try:
+                processed_events = pipeline.process_events(events)
+            except Exception as e:
+                logger.error(f"Modifier pipeline for output '{backend_tag}' failed, dropping events: {e!r}")
+                traceback.print_exc(file=sys.stderr)
+                return
         else:
             processed_events = events
 
