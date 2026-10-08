@@ -610,10 +610,13 @@ class KeyboardLayout1:
                         modifier = hold_binding.to_modifier(specific_key)
                         output_events.extend(self._handle_modifier_up(modifier.mod, event, modifier))
 
-            # Clean up consumed keys
+            # Clean up consumed keys.  Their up handling was done above, so mark
+            # them released so that their eventual physical keyUp is dropped.
             for consumed_key in list(self.consumed_by_tap_or_hold_specific.keys()):
                 if self.consumed_by_tap_or_hold_specific[consumed_key] == key_name:
                     del self.consumed_by_tap_or_hold_specific[consumed_key]
+                    if consumed_key in self.key_states:
+                        self.key_states[consumed_key].is_pressed = False
 
             key_state.pending_specific_keys.clear()
 
@@ -752,26 +755,18 @@ class KeyboardLayout1:
         if key_name not in self.consumed_by_tap_or_hold_specific:
             return []
 
-        tap_or_hold_key = self.consumed_by_tap_or_hold_specific[key_name]
+        # Clean up on every path, so a stale pressed state can't make the
+        # consumed key's next keyDown look like an autorepeat.
+        tap_or_hold_key = self.consumed_by_tap_or_hold_specific.pop(key_name)
+        if key_name in self.key_states:
+            self.key_states[key_name].is_pressed = False
 
-        # Find the TapOrHoldSpecific binding
-        if tap_or_hold_key not in self.layout:
-            # Clean up and return
-            del self.consumed_by_tap_or_hold_specific[key_name]
-            return []
+        # Use the binding the TapOrHoldSpecific key was pressed with rather than
+        # re-resolving it: the hold binding may have changed the current level.
+        tap_or_hold_state = self.key_states.get(tap_or_hold_key)
+        binding = tap_or_hold_state.active_binding if tap_or_hold_state else None
 
-        current_level = self.get_current_level()
-        levels = self.layout[tap_or_hold_key]
-        binding = self._resolve_binding(levels, current_level)
-
-        if not isinstance(binding, TapOrHoldSpecific):
-            # Clean up and return
-            del self.consumed_by_tap_or_hold_specific[key_name]
-            return []
-
-        if key_name not in binding.hold:
-            # Clean up and return
-            del self.consumed_by_tap_or_hold_specific[key_name]
+        if not isinstance(binding, TapOrHoldSpecific) or key_name not in binding.hold:
             return []
 
         hold_binding = binding.hold[key_name]
@@ -788,13 +783,6 @@ class KeyboardLayout1:
             # Convert LevelModifier to Modifier and send modifier up
             modifier = hold_binding.to_modifier(key_name)
             output_events.extend(self._handle_modifier_up(modifier.mod, event, modifier))
-
-        # Clean up
-        del self.consumed_by_tap_or_hold_specific[key_name]
-
-        # Reset the key state for the consumed key
-        if key_name in self.key_states:
-            self.key_states[key_name].is_pressed = False
 
         return output_events
 
