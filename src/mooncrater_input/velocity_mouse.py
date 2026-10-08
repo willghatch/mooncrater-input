@@ -156,7 +156,8 @@ class MotionEngine:
     """Deterministic state machine for game-like keyboard motion.
 
     Binding identities make duplicate physical bindings safe: releasing one key
-    does not release another key that provides the same logical action.
+    does not release another key that provides the same logical action.  Dash
+    actions return an immediate sample in the currently held direction.
     """
 
     def __init__(
@@ -195,6 +196,7 @@ class MotionEngine:
             direction: set() for direction in Direction
         }  # type: Dict[Direction, Set[Any]]
         self._held_adjustments = set()  # type: Set[Any]
+        self._held_dashes = set()  # type: Set[Any]
         self._momentary_swaps = set()  # type: Set[Any]
         self._gesture_directions = set()  # type: Set[Direction]
         self._gesture_moved = False
@@ -396,6 +398,54 @@ class MotionEngine:
         """Allow a later physical press of an adjustment binding to apply again."""
         self._held_adjustments.discard(binding_id)
 
+    def press_dash(
+        self,
+        binding_id: Any,
+        now: float,
+        *,
+        distance: Optional[float] = None,
+        velocity_multiplier: Optional[float] = None,
+    ) -> Optional[MotionSample]:
+        """Return one immediate dash sample in the currently held direction.
+
+        Exactly one distance choice is required.  ``distance`` is independent of
+        speed modifiers.  ``velocity_multiplier`` scales the effective speed for
+        the current output profile, so a value of one represents one second of
+        travel at that speed.  Repeated presses from a binding are ignored until
+        :meth:`release_dash` re-arms it.
+        """
+        self._observe_time(now)
+        if (distance is None) == (velocity_multiplier is None):
+            raise ValueError(
+                "exactly one of distance or velocity_multiplier is required"
+            )
+        configured_value = distance
+        description = "dash distance"
+        if velocity_multiplier is not None:
+            configured_value = velocity_multiplier
+            description = "dash velocity multiplier"
+        configured_value = _finite_number(configured_value, description)
+        if configured_value <= 0.0:
+            raise ValueError("{} must be positive".format(description))
+        if binding_id in self._held_dashes:
+            return None
+
+        self._held_dashes.add(binding_id)
+        profile = self._profile()
+        dash_distance = configured_value
+        if velocity_multiplier is not None:
+            dash_distance *= self.effective_speed(profile.motion_config)
+        sample = self._sample_for_directions(
+            self._active_direction_set(), dash_distance, profile
+        )
+        if sample is not None:
+            self._gesture_moved = True
+        return sample
+
+    def release_dash(self, binding_id: Any) -> None:
+        """Re-arm a dash binding for its next physical press."""
+        self._held_dashes.discard(binding_id)
+
     def set_mode(self, mode: OutputMode, now: float) -> None:
         """Set the persistent output mode."""
         self._observe_time(now)
@@ -497,6 +547,7 @@ class MotionEngine:
             runtime.held_modifiers.clear()
             runtime.latched_modifiers.clear()
         self._held_adjustments.clear()
+        self._held_dashes.clear()
         self._momentary_swaps.clear()
         self._gesture_directions.clear()
         self._gesture_moved = False
