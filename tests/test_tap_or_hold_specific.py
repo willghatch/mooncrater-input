@@ -279,6 +279,36 @@ class TestTapOrHoldSpecific(unittest.TestCase):
         self.assertEqual([], result)
         self.assertEqual(0, kb.get_current_level())
 
+    def test_specific_hold_on_one_shot_level(self):
+        """A TapOrHoldSpecific bound on a one-shot level keeps its hold behavior.
+
+        Pressing the TapOrHoldSpecific key uses up the one-shot level, so the
+        level is back to 0 by the time the specific key is pressed.
+        """
+        kb = KeyboardLayout1({
+            "KEY_CAPSLOCK": LevelModifier(1, style=ModifierStyle.ONE_SHOT),
+            "KEY_X": {
+                1: TapOrHoldSpecific(
+                    tap=[CharKey("x")],
+                    hold={"KEY_0": HoldSpecificHandleBoth(
+                        lambda original_event, specific_event: [
+                            {"category": "keyboard", "type": "typeUnicodeString", "string": "down_combo", "inputTag": "test"}],
+                        lambda specific_event: [])},
+                ),
+            },
+        })
+        result = kb.process_events([
+            {"category": "keyboard", "type": "keyDown", "keyName": "KEY_CAPSLOCK", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyUp", "keyName": "KEY_CAPSLOCK", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyDown", "keyName": "KEY_X", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyDown", "keyName": "KEY_0", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyUp", "keyName": "KEY_0", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyUp", "keyName": "KEY_X", "inputTag": "test"},
+        ])
+        self.assertEqual(
+            [{"category": "keyboard", "type": "typeUnicodeString", "string": "down_combo", "inputTag": "test"}],
+            result)
+
 
 class TestGlobalBindingsTypeTapOrHoldSpecific(unittest.TestCase):
     """Test global control bindings from desired-example-config.py"""
