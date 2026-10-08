@@ -4,6 +4,16 @@ This directory contains tests for the mooncrater-input system.
 
 ## Running Tests
 
+The standard way to run the tests is the `run-tests.sh` script at the repo root.
+It uses `uv` to create a virtualenv at `./venv` (gitignored), installs the package and test dependencies into it, and runs pytest from this directory.
+Extra arguments are passed to pytest:
+   ```bash
+   ./run-tests.sh
+   ./run-tests.sh test_tap_or_hold_specific.py -k rapid
+   ```
+
+To run the tests manually instead:
+
 1. Install test dependencies:
    ```bash
    pip install -r requirements-test.txt
