@@ -227,6 +227,77 @@ def test_short_diagonal_tap_emits_one_normalized_nudge_on_next_tick():
     assert engine.tick(0.01) is None
 
 
+def test_fixed_dash_uses_direction_ignores_speed_and_is_repeat_safe():
+    pointer = MotionConfig(
+        "pointer",
+        10.0,
+        1.0,
+        100.0,
+        modifiers={"turbo": SpeedModifier(ModifierKind.MULTIPLICATIVE, 4.0)},
+        tap_nudge=3.0,
+    )
+    engine = make_engine(pointer_config=pointer)
+    engine.set_speed_modifier(pointer, "turbo", True, 0.0)
+    engine.press_direction(Direction.RIGHT, "right", 0.0)
+    engine.press_direction(Direction.UP, "up", 0.0)
+
+    dash = engine.press_dash("dash", 0.0, distance=12.0)
+    component = 12.0 / math.sqrt(2.0)
+    assert dash.mode is OutputMode.POINTER
+    assert dash.delta_x == pytest.approx(component)
+    assert dash.delta_y == pytest.approx(-component)
+    assert engine.press_dash("dash", 0.0, distance=12.0) is None
+
+    engine.release_dash("dash")
+    assert engine.press_dash("dash", 0.0, distance=12.0) == dash
+    engine.release_direction(Direction.RIGHT, "right", 0.0)
+    engine.release_direction(Direction.UP, "up", 0.0)
+    assert engine.tick(0.01) is None
+
+
+def test_velocity_scaled_dash_uses_effective_profile_speed_and_transform():
+    scroll = MotionConfig(
+        "scroll",
+        20.0,
+        1.0,
+        200.0,
+        modifiers={"turbo": SpeedModifier(ModifierKind.MULTIPLICATIVE, 3.0)},
+    )
+    engine = make_engine(
+        scroll_config=scroll,
+        scroll_profile=OutputProfile(
+            OutputMode.SCROLL,
+            scroll,
+            swap_axes=True,
+            x_sign=-1,
+            y_sign=1,
+        ),
+    )
+    engine.set_speed_modifier(scroll, "turbo", True, 0.0)
+    engine.press_momentary_swap("scroll-swap", 0.0)
+    engine.press_direction(Direction.RIGHT, "right", 0.0)
+
+    dash = engine.press_dash("dash", 0.0, velocity_multiplier=0.5)
+
+    assert dash.mode is OutputMode.SCROLL
+    assert dash.delta_x == pytest.approx(0.0)
+    assert dash.delta_y == pytest.approx(30.0)
+
+
+def test_dash_requires_one_positive_distance_choice_and_a_net_direction():
+    engine = make_engine()
+    assert engine.press_dash("idle", 0.0, distance=10.0) is None
+
+    with pytest.raises(ValueError):
+        engine.press_dash("missing", 0.0)
+    with pytest.raises(ValueError):
+        engine.press_dash("ambiguous", 0.0, distance=10.0, velocity_multiplier=0.5)
+    with pytest.raises(ValueError):
+        engine.press_dash("negative", 0.0, distance=-1.0)
+    with pytest.raises(ValueError):
+        engine.press_dash("not-finite", 0.0, velocity_multiplier=math.nan)
+
+
 def test_reset_restores_defaults_and_clears_all_runtime_state():
     config = MotionConfig(
         "pointer",
