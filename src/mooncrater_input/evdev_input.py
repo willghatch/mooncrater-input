@@ -749,6 +749,13 @@ class EvdevInputCapture:
                         "originalEvdevEvent": (event.type, event.code, event.value),
                     }
 
+                # Drop kernel autorepeat of held buttons.  Devices with EV_REP
+                # (eg. combo keyboard/trackpad nodes) repeat every held key code,
+                # but a button repeat carries no information, and outputs ignore
+                # keyRepeat events anyway.
+                elif event.value == 2:
+                    return None
+
                 # Mouse buttons
                 elif event.code in [
                     self.e.BTN_LEFT,
