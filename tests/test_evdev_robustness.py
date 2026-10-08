@@ -115,3 +115,17 @@ def test_output_retries_reconnect_after_cooldown(output):
     output.send_json_event(key_down("KEY_C"))
 
     assert key_writes() == [(e.EV_KEY, e.KEY_C, 1)]
+
+
+@pytest.mark.parametrize("button", [e.BTN_LEFT, e.BTN_TOUCH])
+def test_held_button_autorepeat_does_not_release_it(output, button):
+    # The kernel autorepeats every held key on a device with EV_REP, including
+    # mouse buttons on combo keyboard/pointer nodes like the Logitech K400 Plus.
+    translator = EvdevInputCapture.EvdevToJsonTranslator(evdev, e)
+    for value in (1, 2, 2):  # press, then two autorepeats while held
+        event = evdev.InputEvent(0, 0, e.EV_KEY, button, value)
+        json_event = translator.translate(None, event, "/dev/input/event0", "captures")
+        if json_event is not None:
+            output.send_json_event(json_event)
+
+    assert [w for w in key_writes() if w[1] == button] == [(e.EV_KEY, button, 1)]
