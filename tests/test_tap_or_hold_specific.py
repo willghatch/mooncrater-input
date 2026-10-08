@@ -256,6 +256,29 @@ class TestTapOrHoldSpecific(unittest.TestCase):
         found_down_combo = any(e.get("string") == "down_combo" for e in result)
         self.assertTrue(found_down_combo, "Should trigger down combo even with early release")
 
+    def test_momentary_level_hold_released_while_level_active(self):
+        """Releasing a specific key that activated a momentary level must drop the level.
+
+        The TapOrHoldSpecific key is bound only at level 0, so the release of
+        the specific key happens while a level is active where the
+        TapOrHoldSpecific key has no binding.
+        """
+        kb = KeyboardLayout1({
+            "KEY_X": {0: TapOrHoldSpecific(tap=[CharKey("x")], hold={"KEY_9": LevelModifier(1)})},
+        })
+        kb.process_events([
+            {"category": "keyboard", "type": "keyDown", "keyName": "KEY_X", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyDown", "keyName": "KEY_9", "inputTag": "test"},
+        ])
+        self.assertEqual(1, kb.get_current_level())
+
+        result = kb.process_events([
+            {"category": "keyboard", "type": "keyUp", "keyName": "KEY_9", "inputTag": "test"},
+            {"category": "keyboard", "type": "keyUp", "keyName": "KEY_X", "inputTag": "test"},
+        ])
+        self.assertEqual([], result)
+        self.assertEqual(0, kb.get_current_level())
+
 
 class TestGlobalBindingsTypeTapOrHoldSpecific(unittest.TestCase):
     """Test global control bindings from desired-example-config.py"""
@@ -475,8 +498,6 @@ class TestLayerBasedControlSystem(unittest.TestCase):
             self.assertEqual(actual_events, expected_events,
                            f"Expected events {expected_events}, got {actual_events}")
 
-    @unittest.expectedFailure
-    # I think this test looks correct, but manual usage seems fine, and fixing this test without breaking others wasn't going well.  I want to review this test later, but marking it expected fail for now so I can stop seeing errors when running the test suite.
     def test_layer_activation_and_command_basic(self):
         """Test basic control activation and command execution."""
         # Step 1: Press KEY_4 (should not activate control yet)
@@ -561,8 +582,6 @@ class TestLayerBasedControlSystem(unittest.TestCase):
             {"category": "keyboard", "type": "keyUp", "keyName": "KEY_S", "inputTag": "test"}
         ])
 
-    @unittest.expectedFailure
-    # I think this test looks correct, but manual usage seems fine, and fixing this test without breaking others wasn't going well.  I want to review this test later, but marking it expected fail for now so I can stop seeing errors when running the test suite.
     def test_rapid_activation_sequences(self):
         """Test rapid sequences that might cause state confusion."""
         # Rapid KEY_4+KEY_9, command, then immediate repeat
