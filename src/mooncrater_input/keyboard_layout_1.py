@@ -634,13 +634,9 @@ class KeyboardLayout1:
                 key_state.is_pressed and
                 key_name != trigger_key_name):  # Don't resolve a key's own TapOrHoldSpecific
 
-                # Find the binding for this TapOrHoldSpecific key
-                if key_name not in self.layout:
-                    continue
-
-                current_level = self.get_current_level()
-                levels = self.layout[key_name]
-                binding = self._resolve_binding(levels, current_level)
+                # Use the binding this key was pressed with; the level may have
+                # changed since (eg. its own press used up a one-shot level).
+                binding = key_state.active_binding
 
                 if not isinstance(binding, TapOrHoldSpecific):
                     continue
@@ -714,13 +710,9 @@ class KeyboardLayout1:
                 key_state.is_pressed and
                 key_name != trigger_key_name):  # Don't resolve a key's own TapOrHoldSpecific
 
-                # Find the binding for this TapOrHoldSpecific key
-                if key_name not in self.layout:
-                    continue
-
-                current_level = self.get_current_level()
-                levels = self.layout[key_name]
-                binding = self._resolve_binding(levels, current_level)
+                # Use the binding this key was pressed with; the level may have
+                # changed since (eg. its own press used up a one-shot level).
+                binding = key_state.active_binding
 
                 if not isinstance(binding, TapOrHoldSpecific):
                     continue
