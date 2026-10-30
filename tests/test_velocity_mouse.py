@@ -335,3 +335,55 @@ def test_engine_rejects_profiles_with_wrong_modes_or_duplicate_config_names():
             OutputProfile(OutputMode.POINTER, pointer),
             OutputProfile(OutputMode.SCROLL, other_pointer),
         )
+
+
+def test_motion_after_an_idle_gap_starts_at_the_press_not_the_last_tick():
+    # A timer that stops while idle leaves the last tick far in the past.
+    engine = make_engine(maximum_tick_elapsed=1.0)
+    engine.press_direction(Direction.RIGHT, "right", 0.0)
+    engine.tick(0.1)
+    engine.release_direction(Direction.RIGHT, "right", 0.1)
+
+    engine.press_direction(Direction.RIGHT, "right", 10.0)
+    sample = engine.tick(10.01)
+    # 100 units/s for 10 ms, not a catch-up jump from the idle gap.
+    assert sample.delta_x == pytest.approx(1.0)
+
+
+def test_is_idle_only_when_nothing_is_held_or_queued():
+    engine = make_engine()
+    assert engine.is_idle()
+    engine.press_direction(Direction.UP, "up", 1.0)
+    assert not engine.is_idle()
+    # An unticked tap queues a nudge that still needs a tick.
+    engine.release_direction(Direction.UP, "up", 1.0)
+    assert not engine.is_idle()
+    assert engine.tick(1.01) is not None
+    assert engine.is_idle()
+
+
+def test_release_held_stops_motion_but_keeps_base_speed_and_latched_state():
+    config = MotionConfig(
+        "pointer", 100.0, 1.0, 1000.0,
+        modifiers={
+            "turbo": SpeedModifier(ModifierKind.MULTIPLICATIVE, 3.0),
+            "lock": SpeedModifier(ModifierKind.MULTIPLICATIVE, 2.0),
+        },
+    )
+    engine = make_engine(pointer_config=config)
+    engine.press_base_adjustment("up", BaseSpeedOperation.MULTIPLY, 2.0, 1.0)
+    engine.toggle_speed_modifier(config, "lock", 1.0)
+    engine.press_speed_modifier(config, "turbo", "turbo-key", 1.0)
+    engine.press_direction(Direction.RIGHT, "right", 1.0)
+    engine.press_momentary_swap("swap", 1.0)
+
+    engine.release_held(1.0)
+
+    assert engine.tick(1.01) is None
+    assert engine.is_idle()
+    assert engine.effective_mode is OutputMode.POINTER
+    assert engine.base_speed(config) == pytest.approx(200.0)
+    # The latched modifier stays; the held turbo does not.
+    assert engine.effective_speed(config) == pytest.approx(400.0)
+    # The adjustment binding is re-armed.
+    assert engine.press_base_adjustment("up", BaseSpeedOperation.MULTIPLY, 2.0, 1.1)
