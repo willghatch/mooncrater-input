@@ -261,6 +261,8 @@ class MotionEngine:
         if was_idle:
             self._gesture_directions.clear()
             self._gesture_moved = False
+            # Motion starts at the press, even if ticks stopped while idle.
+            self._last_tick = now
         self._gesture_directions.add(direction)
 
     def release_direction(
@@ -536,6 +538,29 @@ class MotionEngine:
         if sample is not None:
             self._gesture_moved = True
         return sample
+
+    def is_idle(self) -> bool:
+        """Return whether ticking can stop until the next direction press."""
+        return not self._has_held_direction() and not self._pending_samples
+
+    def release_held(self, now: float) -> None:
+        """Release every held binding and drop queued motion.
+
+        Base speeds, latched modifiers, and the latched mode are kept, unlike
+        :meth:`reset`.
+        """
+        now = self._observe_time(now)
+        for direction in Direction:
+            self._held_directions[direction].clear()
+        for runtime in self._runtime.values():
+            runtime.held_modifiers.clear()
+        self._held_adjustments.clear()
+        self._held_dashes.clear()
+        self._momentary_swaps.clear()
+        self._gesture_directions.clear()
+        self._gesture_moved = False
+        self._pending_samples.clear()
+        self._last_tick = now
 
     def reset(self, now: float) -> None:
         """Clear held/runtime state and restore configured defaults and mode."""
