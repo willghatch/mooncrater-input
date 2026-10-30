@@ -254,6 +254,10 @@ class EvdevOutputVirtualDevice:
             # Fractional accumulation for smooth mouse movement
             self.fractional_x = 0.0
             self.fractional_y = 0.0
+            # Remainders of float smoothScroll deltas, in hi-res units (1/120
+            # notch) and in whole notches, so small steps are not truncated away.
+            self.scroll_hi_res_remainder = {"x": 0.0, "y": 0.0}
+            self.scroll_notch_remainder = {"x": 0.0, "y": 0.0}
 
         def translate(self, json_event: dict) -> List[tuple]:
             """Translate a JSON event dictionary back to evdev events (type, code, value)."""
@@ -382,10 +386,11 @@ class EvdevOutputVirtualDevice:
                             events.append((self.e.EV_REL, self.e.REL_HWHEEL, regular_x))
                     elif delta_x != 0:
                         # Convert float delta back to raw (multiply by 120)
-                        raw_x = int(delta_x * 120)
-                        events.append((self.e.EV_REL, self.e.REL_HWHEEL_HI_RES, raw_x))
+                        raw_x = self._take_whole(self.scroll_hi_res_remainder, "x", delta_x * 120)
+                        if raw_x != 0:
+                            events.append((self.e.EV_REL, self.e.REL_HWHEEL_HI_RES, raw_x))
                         # Also send regular wheel event
-                        regular_x = round(delta_x)
+                        regular_x = self._take_whole(self.scroll_notch_remainder, "x", delta_x)
                         if regular_x != 0:
                             events.append((self.e.EV_REL, self.e.REL_HWHEEL, regular_x))
 
@@ -399,10 +404,11 @@ class EvdevOutputVirtualDevice:
                             events.append((self.e.EV_REL, self.e.REL_WHEEL, regular_y))
                     elif delta_y != 0:
                         # Convert float delta back to raw (multiply by 120)
-                        raw_y = int(delta_y * 120)
-                        events.append((self.e.EV_REL, self.e.REL_WHEEL_HI_RES, raw_y))
+                        raw_y = self._take_whole(self.scroll_hi_res_remainder, "y", delta_y * 120)
+                        if raw_y != 0:
+                            events.append((self.e.EV_REL, self.e.REL_WHEEL_HI_RES, raw_y))
                         # Also send regular wheel event
-                        regular_y = round(delta_y)
+                        regular_y = self._take_whole(self.scroll_notch_remainder, "y", delta_y)
                         if regular_y != 0:
                             events.append((self.e.EV_REL, self.e.REL_WHEEL, regular_y))
 
@@ -429,6 +435,15 @@ class EvdevOutputVirtualDevice:
                 events.append((self.e.EV_SYN, self.e.SYN_REPORT, 0))
 
             return events
+
+        @staticmethod
+        def _take_whole(remainders, axis, delta):
+            """Add delta to remainders[axis] and remove and return its whole part."""
+            total = remainders[axis] + delta
+            # Round away float noise so eg. 50 * 0.04 * 120 counts as 240.
+            whole = int(round(total, 6))
+            remainders[axis] = total - whole
+            return whole
 
         def _char_to_scancode(self, char: str) -> Optional[int]:
             """Convert character to scancode (complete QWERTY mapping)."""
