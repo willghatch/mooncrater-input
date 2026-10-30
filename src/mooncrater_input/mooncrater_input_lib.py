@@ -409,6 +409,11 @@ class MooncraterInput:
             logger.error(f"Failed to create {type_name} output '{tag}': {e}")
             return False
 
+    def get_input_instance(self, tag: str):
+        """Return the instance created for input `tag`, or None if there is none."""
+        info = self.input_instances.get(tag)
+        return info["instance"] if info else None
+
     def remove_input(self, tag: str) -> bool:
         """Remove an input instance by tag.
 
